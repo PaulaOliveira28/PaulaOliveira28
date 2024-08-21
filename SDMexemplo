@@ -1,0 +1,346 @@
+# ------------------------------------------------------------------------ #
+# II Workshop CITA: oportunidades e desafios para Amazônia                 #
+# Minicurso: Modelagem de Distribuição de Espécies aplicada ao estudo      #
+# da biodiversidade                                                        #
+#                                                                          #
+# Criado por: Dr. Gustavo R. Brito                                         #
+# Data: 14-11-2023                                                         #
+# Contato: reis.brito@unesp.br                                             #
+#                                                                          #
+# Descrição: o script representa o processo geral de implementação de      #
+# uma rotina de modelagem da adequabilidade ambiental, no contexto da      #
+# Modelagem de Nicho Ecológico. Todos os procedimentos podem ser modi-     #
+# ficados conforme o escopo e necessidade da pesquisa.                     #
+#                                                                          #
+# Notas:                                                                   #
+# - eventuais erros podem surgir no script devido atualizações dos         #
+# pacotes utilizados pelo script.                                          #
+# - as pastas de origem e destino dos arquivos devem ser atualizadas       #
+# conforme o computador onde serão realizados os processos de modelagem.   #
+# ------------------------------------------------------------------------ #
+
+# 00. Setup e inicialização do script -----
+## Instalar pacotes (rodar apenas uma vez)
+install.packages(c("ggspatial", "raster", "sdm", "spThin", "tidyverse"),
+  clean = TRUE, dependencies = TRUE
+)
+
+sdm::installAll() # instalar pacotes complementares ao pacote sdm (uma única vez)
+
+## Carregar pacotes e definir opções gerais -----
+library(ggspatial)
+library(raster)
+library(sdm)
+library(spThin)
+library(tidyverse)
+
+options(scipen = 999) # remover notação científica dos dados
+
+pal <- c("#76B9A5", "#E8E1A7", "#E4AD73", "#DC6D37", "#E02423") # paleta de cores
+
+# 01. Obter e processar dados ambientais e bióticos -----
+
+## Download ou carregamento das ocorrências -----
+sp <- dismo::gbif(
+  genus = "Harpia",
+  species = "harpyja",
+  geo = TRUE,
+  removeZeros = TRUE,
+  download = TRUE
+)
+
+sp <- read.csv("data/sp.csv")
+sp <- readxl::read_excel("data/sp.xlsx")
+
+### Tratamento dos dados -----
+sp_br <- sp %>%
+  filter(country == "Brazil") %>%
+  select(species, lon, lat)
+
+sp_br <- sp_br %>%
+  distinct() %>% # remove ocorrências duplicadas
+  drop_na() # remove espaços vazios
+
+### Espacialização geográfica -----
+sp_thin <- thin(
+  loc.data = sp_br,
+  lat.col = "lat",
+  long.col = "lon",
+  spec.col = "species",
+  thin.par = 10, # espacialização em km
+  reps = 100,
+  locs.thinned.list.return = TRUE,
+  write.files = FALSE,
+  write.log.file = FALSE
+)
+
+sp_thin <- sp_thin[[1]] # seleciona o conjunto de dados
+colnames(sp_thin) <- c("longitude", "latitude") # renomeia as colunas
+
+### Exportar planilha final -----
+write.csv(sp_thin, "data/harpia_harpyja.csv", row.names = FALSE)
+
+## Download ou carregamento das variáveis -----
+bio <- geodata::worldclim_global( # download do WorldClim direto pelo R
+  var = "bio",
+  res = 5,
+  path = "variaveis/"
+)
+
+bio <- raster::stack(
+  list.files(
+    path = "variaveis/wc2.1_5m/",
+    pattern = ".tif",
+    full.names = TRUE
+  )
+)
+
+bio <- subset(bio, c(
+  "wc2.1_5m_bio_1", "wc2.1_5m_bio_2", "wc2.1_5m_bio_3", "wc2.1_5m_bio_4",
+  "wc2.1_5m_bio_5", "wc2.1_5m_bio_6", "wc2.1_5m_bio_7", "wc2.1_5m_bio_8",
+  "wc2.1_5m_bio_9", "wc2.1_5m_bio_10", "wc2.1_5m_bio_11", "wc2.1_5m_bio_12",
+  "wc2.1_5m_bio_13", "wc2.1_5m_bio_14", "wc2.1_5m_bio_15", "wc2.1_5m_bio_16",
+  "wc2.1_5m_bio_17", "wc2.1_5m_bio_18", "wc2.1_5m_bio_19"
+))
+
+br <- geobr::read_country(year = 2020)
+
+bio <- projectRaster(bio, crs = crs(br)) # reprojetar para SIRGAS 2000
+
+bio <- crop(bio, br) # recorte da área de estudo
+bio <- mask(bio, br) # máscara fora da área de estudo
+plot(bio[[1]]) # plotagem do mapa
+
+### Tratamento das variáveis -----
+harpia <- raster::extract(bio, sp_thin) # extrai valores ambientais por ocorrência
+
+harpia_vif <- usdm::vifstep(harpia, th = 10) # análise de multicolinearidade
+harpia_vif # sumário do VIF
+
+bio_harpia <- usdm::exclude(bio, harpia_vif) # excluir variáveis correlacionadas
+plot(bio_harpia)
+
+# 02. Validar ocorrências e variáveis ambientais -----
+plot(bio_harpia[[1]])
+points(sp_thin, col = "red")
+
+bio_harpia <- raster::stack(bio_harpia) # transformar de Brick para Stack
+
+rm(list = setdiff(ls(), c("bio_harpia", "br", "sp_thin", "pal")))
+
+# 03. Ajustar e treinar modelos de adequabilidade -----
+
+## Criar instruções do modelo -----
+sp_thin <- sp_thin %>% # cria a coluna de presença
+  mutate(harpia = 1)
+
+coordinates(sp_thin) <- c("longitude", "latitude")
+
+mdata <- sdmData(
+  formula = harpia ~ .,
+  train = sp_thin,
+  predictors = bio_harpia,
+  bg = list(
+    n = 10000,
+    method = "gRandom",
+    remove = TRUE
+  )
+)
+
+## Calibrar o modelo de adequabilidade -----
+modelo <- sdm(
+  formula = harpia ~ .,
+  data = mdata,
+  methods = "Maxent",
+  replication = "sub",
+  n = 3,
+  test.percent = 30,
+  parallelSettings = list(
+    ncore = 2, # número de núcleos do processador para utilizar na modelagem
+    method = "parallel"
+  )
+)
+
+## Sumário e validação estatística -----
+modelo # sumário
+
+roc(modelo) # curva ROC (valores de AUC)
+
+getVarImp(modelo)
+
+# 04. Projetar mapas de adequabilidade -----
+
+## Projetar por algoritmo -----
+proj_harpia <- predict(
+  modelo,
+  newdata = bio_harpia,
+  filename = "projecoes/proj_harpia.grd",
+  nc = 2 # número de núcleos do processador para utilizar
+)
+
+## Ensemble -----
+ens_harpia <- ensemble(
+  modelo,
+  newdata = bio_harpia,
+  setting = list(
+    method = "weighted",
+    stat = "TSS",
+    opt = 2 # opção de maximização da especificidade e sensibilidade do modelo
+  )
+)
+
+plot(ens_harpia)
+points(sp_thin, col = "red")
+
+# 05. Projetar para cenários futuros -----
+
+## Download do cenário futuro -----
+bio_fut <- geodata::cmip6_world(
+  model = "MIROC6",
+  ssp = 370,
+  time = "2021-2040",
+  var = "bioc",
+  res = 5,
+  path = "variaveis/"
+)
+
+## Selecionar manualmente as variáveis do futuro (iguais as do modelo atual)
+bio_fut <- raster::stack(bio_fut) # transforma de SpatRaster para RasterStack
+bio_fut_harpia <- raster::subset(bio_fut, c(2, 3, 4, 8, 13, 15, 18, 19))
+
+## Reprojetar, recortar e mascarar variáveis futuras para a área de estudo -----
+bio_fut_harpia <- projectRaster(bio_fut_harpia, crs = crs(br)) # reprojetar para SIRGAS 2000
+
+bio_fut_harpia <- crop(bio_fut_harpia, br) # recorte da área de estudo
+bio_fut_harpia <- mask(bio_fut_harpia, br) # máscara fora da área de estudo
+plot(bio_fut_harpia[[1]]) # plotagem do mapa
+
+## Renomear variáveis do futuro (igualar ao presente) -----
+names(bio_fut_harpia) <- c(
+  "wc2.1_5m_bio_2", "wc2.1_5m_bio_3", "wc2.1_5m_bio_4",
+  "wc2.1_5m_bio_8", "wc2.1_5m_bio_13", "wc2.1_5m_bio_15",
+  "wc2.1_5m_bio_18", "wc2.1_5m_bio_19"
+)
+
+## Criar ensemble futuro (2021-2040) -----
+ens_harpia_fut <- ensemble(
+  modelo,
+  newdata = bio_fut_harpia, # variáveis do futuro
+  setting = list(
+    method = "weighted",
+    stat = "TSS",
+    opt = 2 # opção de maximização da especificidade e sensibilidade do modelo
+  )
+)
+
+## Comparar ensemble do presente com o futuro (2021-2040) -----
+par(mfrow = c(1, 2)) # pareia os plots
+
+plot(ens_harpia)
+plot(ens_harpia_fut)
+
+dev.off() # reseta os plots do R
+
+# 06. Criar mapas personalizados -----
+
+## Transformar ensemble em dataframe -----
+ens_harpia_presente <- as.data.frame(ens_harpia, xy = TRUE)
+ens_harpia_futuro <- as.data.frame(ens_harpia_fut, xy = TRUE)
+sp <- read.csv("data/harpia_harpyja.csv")
+
+## Criar plots do presente e futuro -----
+plot_presente <- ggplot() +
+  geom_raster(data = ens_harpia_presente, aes(x, y, fill = layer)) +
+  geom_sf(data = br, color = "#464646", fill = NA) +
+  geom_point(
+    data = sp,
+    aes(x = longitude, y = latitude, color = "black"), size = .7
+  ) +
+  scale_fill_gradientn(
+    colours = pal,
+    na.value = NA,
+    limits = c(0.00, 1.00)
+  ) + # parâmetros da escala de cor
+  scale_color_manual(
+    values = "black",
+    name = NULL,
+    labels = expression(italic("Harpia harpyja (Linnaeus, 1758)"))
+  ) +
+  coord_sf() +
+  annotation_north_arrow(
+    location = "br",
+    which_north = "true",
+    style = north_arrow_fancy_orienteering,
+    pad_x = unit(0.25, "in"), pad_y = unit(0.30, "in")
+  ) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  labs(
+    x = "Longitude", # texto do eixo x
+    y = "Latitude", # texto do eixo y
+    fill = "Adequabilidade\n    Ambiental"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "lightgrey"),
+    panel.grid.minor = element_line(color = "lightgrey"),
+    legend.title = element_text(face = "bold", size = 12, vjust = 3)
+  )
+
+plot_presente # plot do mapa presente
+
+plot_futuro <- ggplot() +
+  geom_raster(data = ens_harpia_futuro, aes(x, y, fill = layer)) +
+  geom_sf(data = br, color = "#464646", fill = NA) +
+  geom_point(
+    data = sp,
+    aes(x = longitude, y = latitude, color = "black"), size = .7
+  ) +
+  scale_fill_gradientn(
+    colours = pal,
+    na.value = NA,
+    limits = c(0.00, 1.00)
+  ) + # parâmetros da escala de cor
+  scale_color_manual(
+    values = "black",
+    name = NULL,
+    labels = expression(italic("Harpia harpyja (Linnaeus, 1758)"))
+  ) +
+  coord_sf() +
+  annotation_north_arrow(
+    location = "br",
+    which_north = "true",
+    style = north_arrow_fancy_orienteering,
+    pad_x = unit(0.25, "in"), pad_y = unit(0.30, "in")
+  ) +
+  annotation_scale(location = "br", width_hint = 0.5) +
+  labs(
+    x = "Longitude", # texto do eixo x
+    y = "Latitude", # texto do eixo y
+    fill = "Adequabilidade\n    Ambiental"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major = element_line(color = "lightgrey"),
+    panel.grid.minor = element_line(color = "lightgrey"),
+    legend.title = element_text(face = "bold", size = 12, vjust = 3)
+  )
+
+plot_futuro # plota o mapa futuro
+
+## Exportar imagens -----
+ggsave(
+  filename = "ens_presente.png",
+  plot = plot_presente,
+  device = "png",
+  scale = 3,
+  bg = "white"
+)
+
+ggsave(
+  filename = "ens_futuro.png",
+  plot = plot_futuro,
+  device = "png",
+  scale = 3,
+  bg = "white"
+)
+
