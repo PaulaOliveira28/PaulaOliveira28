@@ -1,1 +1,191 @@
+###Harpia - estudos SDM 
 
+install.packages(c("ggspatial","raster","sdm","spThin","tidyverse"),
+                 clean=TRUE,dependencies = TRUE)
+sdm::installAll()  #rodar apenas uma vez esses pacotes!
+
+install.packages("ggplot2")
+install.packages("tidyr")
+install.packages("dplyr")
+install.packages("biomod2",dependencies=TRUE) #novo!
+install.packages("geodata")
+
+library(ggplot2)
+library(biomod2)
+library(terra)
+library(geodata)
+library(ggspatial)
+library(raster)
+library(sdm)
+library(spThin)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+
+options(scipen=999) #remover notação científica dos dados
+
+sp<-dismo::gbif(
+  genus="Harpia",
+  species="harpyja",
+  geo=TRUE,
+  removeZeros=TRUE,
+  download=TRUE
+)
+
+#tratamento dos dados
+sp_br<-sp%>%
+  filter(country=="Brazil")%>%
+  select(species,lon,lat)
+
+sp_br<-sp_br%>%
+  distinct()%>% #remoção de duplicatas e dados vazios
+  drop_na()
+
+#espacialização geográfica
+sp_thin<-thin(
+  loc.data = sp_br,
+  lat.col = "lat",
+  long.col = "lon",
+  spec.col = "species",
+  thin.par = 10,   #espacialização em km dos meus dados
+  reps = 50,
+  locs.thinned.list.return = TRUE,
+  write.files = FALSE,
+  write.log.file = FALSE
+)
+
+#########
+sp_thin<-sp_thin[[1]] #seleciona o conjunto de dados
+colnames(sp_thin)<-c("longitude","latitude") #renomeia as colunas
+
+#########exploração geográfica dos meus dados
+install.packages("geobr")
+library(geobr)      
+br<-geobr::read_country(year=2020)   #shapefile do Brasil!
+plot(br)
+
+ggplot() +
+  geom_sf(data=br, fill="lightgrey") +
+  geom_point(data= sp_br, aes(x=lon,y=lat))+
+  coord_sf()+
+  theme_minimal()
+
+
+#Download direto pelo R
+bio<-geodata::worldclim_global(
+  var="bio",
+  res=5,
+  path="variaveis/"
+)
+
+bio<-raster::stack(
+  list.files(
+    path="variaveis/climate/wc2.1_5m/",
+    pattern=".tif",
+    full.names=TRUE
+  )
+)
+
+br<-geobr::read_country(year=2020)
+
+bio<-projectRaster(bio, crs=crs(br))
+
+bio<-crop(bio,br)
+bio<-mask(bio,br)
+plot(bio[[1]])
+
+harpia<-raster::extract(bio,sp_thin) 
+
+harpia_vif<-usdm::vifstep(harpia,th=10)
+harpia_vif
+
+bio_harpia<-usdm::exclude(bio,harpia_vif)
+plot(bio_harpia)
+
+plot(bio_harpia[[1]])
+points(sp_thin,col="red")
+
+bio_harpia<-raster::stack(bio_harpia)
+####rm(list=setdiff(ls(),c("bio_harpia","br","sp_thin","pal")))##remover agora não...
+
+sp_thin<-sp_thin%>%
+  mutate(harpia=1)
+list(sp_thin)
+
+coordinates(sp_thin)<-c("longitude","latitude")
+### até aqui da certo!!
+
+
+### daqui para baixo começa dar erro... ~.~'
+#qual função subtituí o sdmData? biomod2
+
+####Utilizando o biomod2
+mData<-BIOMOD_FormatingData(resp.var = sp_thin,
+                            expl.var = bio_harpia,            #aqui biomod2
+                            resp.xy = br,
+                            resp.name = harpia,
+                            PA.nb.rep = 4,
+                            PA.strategy = 'random',
+                            PA.nb.absences = 10000
+                            )
+
+mData
+
+myBiomodModelOut <- BIOMOD_Modeling(bm.format = mData,
+                                    modeling.id = 'AllModels',
+                                    models = "Maxent",
+                                    CV.strategy = 'random',
+                                    CV.nb.rep = 2,
+                                    CV.perc = 0.8,
+                                    OPT.strategy = 'parallel',
+                                    metric.eval = c('TSS','ROC'),
+                                    var.import = 2,
+                                    seed.val = 42
+                                    )
+
+myBiomodModelOut
+
+?BIOMOD_FormatingData
+?BIOMOD.options.default #dúvida
+?BIOMOD_Modeling #dúvida
+
+####Utilizando o sdm (aqui da erro!)
+mdata<-sdmData(            
+  formula=harpia~.,
+  train=sp_thin,
+  predictors=bio_harpia,
+  bg=list(
+    n=10000,
+    method="gRandom",
+    remove=TRUE
+  ) 
+)
+
+
+modelo<-sdm(
+  formula=harpia~.,
+  data=mdata,
+  methods="Maxent",
+  replication="sub",
+  n=3,
+  teste.percent=30,
+  parallelSettings=list(
+    ncore=2,
+    method="parallel"
+  )
+)
+
+modelo
+roc(modelo)
+getVarImp
+
+########################################################
+#IGNORA!#parte quebrada que substitui a de cima (talvez)
+bioclim_extract <- extract(x = bio_harpia,
+                           y = sp_thin ,
+                           ID = FALSE) # No need for an ID column
+
+
+#sites help:
+#https://jcoliver.github.io/learn-r/011-species-distribution-models.html
+##https://rpubs.com/fidele98/sdm          
