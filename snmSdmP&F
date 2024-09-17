@@ -1,0 +1,168 @@
+###tutorial maxent - Paula e Felipe 17/09
+
+#pacotes
+library(raster)
+install.packages("dismo")
+library(dismo)
+install.packages("spThin")
+library(spThin)
+library(dplyr)
+library(tidyr)
+install.packages("geobr")
+library(geobr)
+library(ggplot2)
+install.packages("geodata")
+library(geodata)
+install.packages("usdm")
+library(usdm)
+install.packages("remotes")
+library(remotes)
+install.packages("ps")
+#remotes::install_github('adamlilith/enmSdm', dependencies=TRUE)
+#library(enmSdm)
+install.packages('enmSdmX', dependencies = TRUE)
+library(enmSdmX)
+
+install.packages(c("ggspatial", "raster", "sdm", "spThin", "tidyverse", "dismo"),
+                 clean = TRUE, dependencies = TRUE
+)
+
+sdm::installAll()
+
+library(ggspatial)
+library(raster)
+library(sdm)
+library(spThin)
+library(tidyverse)
+library(dismo)
+
+#data(sp_thin)
+#data(biod)
+
+##data(sp_thin) tratamento
+#Tratamento de Dados de Ocorrência
+sp<-dismo::gbif(genus="Harpia", species="harpyja", geo=TRUE, removeZeros=TRUE, download=TRUE)
+
+sp_br<-sp%>%filter(country=="Brazil")%>%select(species,lon,lat)
+
+sp_br<-sp_br%>%distinct()%>%drop_na()
+
+# Baixando dados de ocorrência de Harpia harpyja usando o GBIF, filtrando para o Brasil e selecionando as colunas de interesse (species, lon, lat). Além disso, remove duplicatas e valores ausentes.
+
+
+sp_thin<-thin(loc.data=sp_br, lat.col="lat",long.col="lon",spec.col="species",thin.par=10,reps=50,locs.thinned.list.return=TRUE,write.files=FALSE,write.log.file=FALSE)
+
+sp_thin<-sp_thin[[1]]
+colnames(sp_thin)<-c("longitude","latitude")
+
+# Aplicando um método de afinamento espacial para reduzir a autocorrelação espacial nas suas localizações de ocorrência, com parâmetros específicos para o nível de afinamento e número de repetições.
+
+#exploração geográfica dentro dos dados 
+#Visualização Geográfica
+br<-geobr::read_country(year=2020)
+plot(br)
+
+ggplot() + geom_sf(data=br, fill="lightgrey") + geom_point(data= sp_br,aes(x=lon,y=lat))+coord_sf()+theme_minimal()
+
+# Carregando e visualizando o mapa do Brasil com as localizações de ocorrência originais.
+
+##data(biod) tratamento
+#Preparação dos Dados Climáticos
+biod<-geodata::worldclim_global(var="bio",res=5,path="variaveis/")
+
+biod<-raster::stack(list.files(path="variaveis/climate/wc2.1_5m/",pattern=".tif",full.names=TRUE))
+
+#br<-projectRaster(biod, crs = crs(br)) #esquece esse
+
+biod<-crop(biod,br)
+biod<-mask(biod,br)
+plot(biod[[1]])
+
+# Carregando e preparando dados climáticos do WorldClim, ajustando o sistema de coordenadas, recortando e mascarando os dados para a área de interesse.
+
+harpia<-raster::extract(biod,sp_thin)
+
+harpia_vif<-usdm::vifstep(harpia,th=10)
+harpia_vif
+
+bio_harpia<-usdm::exclude(biod,harpia_vif)
+plot(bio_harpia)
+
+plot(bio_harpia[[1]])
+points(sp_thin,col="red")
+
+# Extrai dados climáticos para as ocorrências afinadas, realiza uma análise de fator de inflação da variância (VIF) para identificar e remover variáveis climáticas colineares, e gera um conjunto final de variáveis climáticas (bio_harpia).
+
+bio_harpia<-raster::stack(bio_harpia)
+
+sp_thin<-sp_thin%>%mutate(harpia=1)
+list(sp_thin)
+
+coordinates(sp_thin)<-c("longitude","latitude")
+
+####tratamento dos dados para o modelo de fato
+#dados climáticos
+#Preparação dos Dados para Modelagem
+bio_harpia #(aqui estão os bioclim melhores)
+clim<-geodata::worldclim_global(var="bio",res=5,path="variaveis/")
+#clim<-raster::subset(clim,bio_harpia)
+clim<-raster::mask(clim,br)
+
+clim <- biod
+# Carregando e preparando os dados climáticos finais para a modelagem, com base nas variáveis selecionadas.
+
+#dados de ocorrência
+#occs<-sp_thin[sp_thin$Species=="Harpia harpyja",] #usar sp_br em vez de
+occsEnv<-raster::extract(clim,sp_br[,c("lon","lat")])
+occsEnv<-as.data.frame(occsEnv)
+
+# Extrai as variáveis climáticas para as ocorrências afinadas e transforma em um data frame.
+
+#dados de pseudo-ausência
+bg<-10000
+bgSites<-dismo::randomPoints(clim,10000)
+bgEnv<-raster::extract(clim,bgSites)
+
+# Gera pontos aleatórios de fundo (pseudo-ausências) e extrai as variáveis climáticas para esses pontos.
+
+#collate (agrupar)
+presBg<-rep(c(1,0),c(nrow(sp_br),nrow(bgSites)))
+env<-rbind(occsEnv,bgEnv)
+env<-cbind(presBg,env)
+env<-as.data.frame(env)
+
+# Combina os dados de presença e ausência em um único data frame para modelagem.
+
+preds<-paste0("bio",bio_harpia)
+
+regMult<-1:3
+
+#calibrando o modelo MaxEnt 
+ent<-trainMaxEnt(data=env, regMult=regMult,
+                 classes="lpq", verbose=TRUE)
+
+# Treinando um modelo MaxEnt usando as variáveis climáticas selecionadas. regMult define o multiplicador de regularização.
+
+# Step 1: Extract the values from the RasterBrick
+clim_values <- raster::getValues(clim)
+
+# Step 2: Convert the matrix of values to a data.frame
+clim_df <- as.data.frame(clim_values)
+
+# Step 3: Make predictions using predictMaxEnt, passing the data.frame
+mapEnt <- predictMaxEnt(ent, clim_df, type = "logistic")
+
+
+#rasters de predição
+mapEnt<-predictMaxEnt(ent,clim,type="logistic")
+par(mfrow=c(1,2))
+plot(mapEnt,main="MaxEnt")
+points(occs[,c("longitude","latitude")])
+
+# Prediz a distribuição de habitat usando o modelo MaxEnt e plota o resultado.
+
+#predições para ocorrências
+(dismo::predict(ent,occsEnv,arguments=c("outputformat=logistic")))
+(enmSdm::predictMaxEnt(ent,occsEnv,type="logistic"))
+
+# Faz previsões para as ocorrências usando o modelo MaxEnt treinado. Ambas as funções (dismo::predict e enmSdm::predictMaxEnt) retornam a probabilidade de presença da espécie nas localizações de ocorrência.
