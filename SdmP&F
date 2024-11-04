@@ -170,3 +170,4 @@ points(occs[,c("longitude","latitude")])
 (enmSdm::predictMaxEnt(ent,occsEnv,type="logistic"))
 
 # Faz previsões para as ocorrências usando o modelo MaxEnt treinado. Ambas as funções (dismo::predict e enmSdm::predictMaxEnt) retornam a probabilidade de presença da espécie nas localizações de ocorrência.
+#http://localhost:17659/session/maxent/410010837759/maxent.html
