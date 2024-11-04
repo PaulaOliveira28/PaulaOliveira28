@@ -1,0 +1,29 @@
+library(dismo)
+library(raster)
+library(sp)
+
+# Carregar dados de ocorrência
+ocorrencias <- snakes # ajuste o caminho do arquivo
+coords <- ocorrencias[, c("longitude", "latitude")]
+
+# Carregar variáveis ambientais
+# Aqui, como exemplo, vamos usar camadas de temperatura e precipitação
+data_dir <- "C:/Users/paula/variaveis/"
+temperature_data <- geodata::worldclim_global(var = "bio", res = 5, path = data_dir)
+
+precipitation_data <- geodata::worldclim_global(var = "precip", res = 5, path = data_dir)
+
+# Preparar as camadas de variáveis
+variaveis <- stack(temperature_data )
+
+# Ajustar o modelo MaxEnt
+modelo_maxent <- maxent(variaveis, coords)
+
+# Resumir os resultados do modelo
+summary(modelo_maxent)
+
+# Prever a distribuição da espécie
+previsao <- predict(modelo_maxent, variaveis)
+
+# Plotar a distribuição prevista
+plot(previsao)
