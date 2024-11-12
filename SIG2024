@@ -165,3 +165,24 @@ plot(amazon)
 
 beh_amazon<-project(amazon,'ESRI:54017')
 plot(beh_amazon)
+
+world_rast<-rasterize(world, rast())
+plot(world_rast)
+moll_rast<-terra::project(world_rast,crs(moll))
+behrmann_rast<-terra::project(world_rast,crs(behrmann))
+par(mfrow=c(2,2))
+terra::plot(cellSize(world_rast),main="Mercator")
+terra::plot(cellSize(moll_rast),main="Mollweide")
+terra::plot(cellSize(behrmann_rast),main="Behrmann")
+
+mapbiomas<-rast("R/Dia 1/Tipos de dados/Raster/mapbioma_microbacia_araguaia.tif")
+
+mapbiomas2<-project(mapbiomas,"ESRI:54009",method="near") #vizinho mais próximo
+plot(mapbiomas2)
+###
+#ex1
+library(sf)
+mapcerrado<-st_read("R/Dia 1/Projecao_reprojecao/VegetacaoCerrado/VegetacaoCerrado.shp")
+crs(mapcerrado)
+mapcerrado <- crs("EPSG:4326")
+
