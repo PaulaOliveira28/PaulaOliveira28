@@ -124,9 +124,44 @@ coords_junto<-rbind(coords1, coords2)
 plot(coords_junto)
 tabeladeatributos<-data.frame(ID=1:2,
                               dado=c("Inf","Sup"))
+print(tabeladeatributos)
 poligono2<-vect(coords_junto,atts=tabeladeatributos,type="polygon")
 plot(poligono2, col=c("black"))
 
 #ex8: Transforme o vetor em raster.
 rast2<-rasterize(poligono2,raster,touches=TRUE)
 plot(rast2)
+
+####mundo!
+install.packages("rnaturalearth")
+library(rnaturalearth)
+
+world<-terra::vect(rnaturalearth::ne_countries(returnclass="sf"))
+print(world)
+crs(world)
+
+#mudar a projeção
+moll<-project(world,"ESRI:54009")
+plot(world)
+plot(moll) #mantém as áreas e distorce a forma!
+
+behrmann<-project(world,"ESRI:54017")
+plot(behrmann) #também equal area, mas distoce diferente
+
+homolosine<-project(world,"ESRI:54052")
+plot(homolosine)
+
+#todos de uma vez:
+par(mfrow = c(2, 2))
+plot(world, main = "world")
+plot(moll, main = "moll")
+plot(behrmann, main = "behrmann")
+plot(homolosine,  main = "homolosine")
+par(mfrow = c(1, 1))
+
+#####amazônia legal
+amazon<-vect("R/Dia 1/Projecao_reprojecao/brazilian_legal_amazon/")
+plot(amazon)
+
+beh_amazon<-project(amazon,'ESRI:54017')
+plot(beh_amazon)
