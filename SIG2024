@@ -14,7 +14,6 @@ plot(raster2)
 
 crs(raster2) #saber qual o sistema de coordenadas
 
-
 raster3 <- rast(matrix (runif(25), ncol=5, nrow=5))
 junto <- rast (list(raster,raster3))
 nlyr(junto)
@@ -88,3 +87,46 @@ plot(mapbiomas_poly)
 grid<-vect("R/Dia 1/Tipos de dados/Raster/Grid_America do Sul/Adequabilidade_Micrurs.shp")
 raster_grid<-rasterize(grid,rast(ext=ext(grid),crs=crs(grid),res=0.5))
 plot(raster_grid)
+
+###
+#ex1: Crie um raster e adicione valores de uma distribuição normal com média 5 e desvio padrão 1.
+raster1<- rast(matrix (runif(25), ncol=5, nrow=5))
+coords1<-cbind(ID=1,raster1)
+
+#ex2: Qual função utilizamos para extrairmos informações sobre os limites do raster, coordenadas geográficas e resolução espacial.
+crs(raster1) 
+xyFromCell(raster1,1:3)
+
+#ex3: Substitua os valores de 5 células do raster.
+values(raster1)[1:5]<-1:5
+plot(raster1)
+
+#ex4: Extraia valores que células específicas do raster.
+cellFromXY(raster1,matrix(c(3.5,2.5), nrow=1, ncol=2))
+
+#ex5: Transforme o raster em vetor.
+vetor1<-as.polygons(raster1)
+plot(vetor1)
+
+#ex6: Crie 3 polígono a partir de uma matriz de coordenadas geográficas.
+coords1 <- coords[c(1:2), ]   # Primeiro polígono
+coords2 <- coords[c(2:3), ] # Segundo polígono
+
+poly1 <- vect(coords1, type = "polygons", crs = crs(raster1))
+poly2 <- vect(coords2, type = "polygons", crs = crs(raster1))
+
+plot(raster1, main = "Raster com dois Polígonos")
+plot(poly1, add = TRUE, col = "red", border = "red")
+plot(poly2, add = TRUE, col = "red", border = "red")
+
+#ex7: Anexe atributos aos polígonos.
+coords_junto<-rbind(coords1, coords2)
+plot(coords_junto)
+tabeladeatributos<-data.frame(ID=1:2,
+                              dado=c("Inf","Sup"))
+poligono2<-vect(coords_junto,atts=tabeladeatributos,type="polygon")
+plot(poligono2, col=c("black"))
+
+#ex8: Transforme o vetor em raster.
+rast2<-rasterize(poligono2,raster,touches=TRUE)
+plot(rast2)
