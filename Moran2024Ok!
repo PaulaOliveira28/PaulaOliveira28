@@ -1,0 +1,152 @@
+#Índice de Moran - Paula Oliveira 31/10/24
+####
+#tentativa 1
+tabSAM<-SAM.Ex.South.America <- read.delim("C:/Users/paula/Downloads/SAM Ex South America.txt")
+matSAM<-as.matrix(tabSAM) #redundante/teste
+print(matSAM)
+matMoran<-matSAM[,c("X.Axis","Y.Axis","Snakes.Richness")]
+print(matMoran)#dados tentativa 2
+
+#matrix em polígono
+matMoran <- rbind(matMoran, matMoran[1, ])
+polMoran<-st_polygon(list(matMoran))
+sf_polMoran<- st_sfc(polMoran)
+plot(sf_polMoran) #uso esses dados aqui tentativa 1
+
+install.packages("sf")
+library(sf)
+install.packages("spdep")
+library(spdep)
+
+#verificando os dados
+class(sf_polMoran)
+sf_polMoran <- st_as_sf(sf_polMoran)
+sf_polMoran <- st_zm(sf_polMoran)
+validade <- st_is_valid(sf_polMoran)
+print(validade)
+
+invalid_indices <- which(!st_is_valid(sf_polMoran))
+print(invalid_indices)
+
+plot(sf_polMoran[invalid_indices, ])
+
+sf_polMoran <- st_make_valid(sf_polMoran)
+validade <- st_is_valid(sf_polMoran)
+print(validade)
+
+####
+st_is_valid(sf_polMoran)
+sf_polMoran <- st_make_valid(sf_polMoran)
+plot(sf_polMoran)
+
+###
+# CRS 
+sf_polMoran <- st_set_crs(sf_polMoran, 4326)  
+
+# geometria
+geometry_types <- st_geometry_type(sf_polMoran)
+print(geometry_types)  # Deve retornar "MULTIPOLYGON"
+
+
+##############esquece!
+# Adicionando um ID único na matrix (pq? não sei)
+#sf_polMoran$ID <- seq_len(nrow(sf_polMoran))
+#print(sf_polMoran)
+#######################
+#############
+
+#I de Moran
+nb<-poly2nb(sf_polMoran, queen=TRUE) #aqui da erro, e não entendi pq
+plot(sf_polMoran)
+
+#...
+#Difícil e complicado demais!
+
+####
+#tentativa 2
+install.packages("spdep")
+library(spdep)
+library(sp)
+
+correlogramaSAM <- function(data, p) {
+  if (ncol(data) != 3) {
+    stop("Matrix com 3 colunas: lon, lat e variável.")
+  }
+  
+  coords <- as.matrix(data[, 1:2])  
+  variavel <- data[, 3]              
+  distancias <- as.matrix(dist(coords))
+  
+  breaks <- quantile(distancias, probs = seq(0, 1, length.out = p + 1), na.rm = TRUE)
+  
+  moran_I <- numeric(p)
+  centroide <- numeric(p)
+  
+  for (i in 1:p) {
+    indices <- which(distancias > breaks[i] & distancias <= breaks[i + 1], arr.ind = TRUE)
+    
+    if (length(indices) == 0) {
+      moran_I[i] <- NA  
+      centroide[i] <- mean(breaks[i:(i + 1)])
+      next
+    }
+    
+    vizinhos <- unique(c(indices[, 1], indices[, 2]))
+    
+    nb <- knn2nb(knearneigh(coords[vizinhos, , drop = FALSE], k = min(30, length(vizinhos) - 1)))
+    
+    if (length(vizinhos) > 1) {
+      moran_result <- moran.test(variavel[vizinhos], listw = nb2listw(nb), randomisation = FALSE)
+      moran_I[i] <- moran_result$estimate[1]
+    } else {
+      moran_I[i] <- NA  
+    }
+    
+    centroide[i] <- mean(breaks[i:(i + 1)])
+  }
+  
+  resultado <- data.frame(centroide = centroide, moran_I = moran_I)
+  
+  
+  plot(resultado$centroide, resultado$moran_I, type = "b",
+       xlab = "Distâncias", ylab = "I de Moran",
+       main = "Análises Espaciais em Macroecologia - Paula",
+       pch = 19, col = "purple")
+  
+  return(resultado)
+}
+
+correlogramaSAM(matMoran, p = 30)
+
+
+############ tentativa 3
+coordsSAM<- tabSAM[c("X.Axis","Y.Axis")]
+
+variavelSAM<-tabSAM[c("Snakes.Richness")]
+
+distanciaSAM<-as.matrix(dist(coordsSAM))
+
+n<-nrow(coordsSAM)
+
+w <-matrix(0,n,n)
+
+thrshold<-2
+
+for(i in 1:n){
+  for(j in 1:n){
+    if(distanciaSAM[i,j]<=thrshold && i !=j){
+      w[i,j]<-1
+    }
+  }
+}
+
+#### tentativa 4
+
+install.packages(c("sf", "rnaturalearth", "dplyr"))
+library(sf)
+library(rnaturalearth)
+library(dplyr)
+
+south_america <- ne_countries(scale = "medium", continent = "South America", returnclass = "sf")
+
+
