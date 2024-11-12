@@ -1,0 +1,90 @@
+library(terra)
+
+matrix<-matrix(runif(25), ncol=5,nrow=5)
+
+raster<-rast(matrix) #transformando a matrix em raster!
+plot(raster)
+
+values(raster)[1:5]<-1:5 #extrair os valores do raster e substituir os valores de 1 a 5
+plot(raster)
+
+raster2<-rast(ncol=5, nrow=5, xmin=0,xmax=5, ymin=0, ymax=5)
+values(raster2)<-1:25
+plot(raster2)
+
+crs(raster2) #saber qual o sistema de coordenadas
+
+
+raster3 <- rast(matrix (runif(25), ncol=5, nrow=5))
+junto <- rast (list(raster,raster3))
+nlyr(junto)
+plot(junto)
+
+junto[[1]]
+junto[[2]]
+
+xyFromCell(raster,1:3)
+
+cellFromXY(raster,matrix(c(3.5,2.5), nrow=1, ncol=2)) #posição da celula de tal coordenada
+
+writeRaster(raster, "raster.tif", overwrite = T)
+
+raster <- rast ("raster.tif")
+
+mapbiomas<-rast("R/Dia 1/Tipos de dados/Raster/mapbioma_microbacia_araguaia.tif")
+
+plot(mapbiomas)
+
+####sistema de referência 
+x<-c(1,2,3)
+y<-c(2,3,4)
+coords<-cbind(ID=1,x,y)
+pontos<-terra::vect(coords)
+terra::plot(pontos)
+
+linhas<-vect(coords,type="lines")
+plot(linhas)
+
+x<-c(1,3,3)
+y<-c(2,2,4)
+coords<-cbind(ID=1,x,y)
+poligono<-vect(coords,type="polygon")
+plot(poligono)
+
+ext(poligono) #extensão max e min do poligono
+crs(poligono)
+
+x2<-c(1,1,3)
+y2<-c(2,4,4)
+coords2<-cbind(ID=2,x2,y2)
+coords_junto<-rbind(coords, coords2)
+plot(coords_junto)
+tabeladeatributos<-data.frame(ID=1:2,
+                              dado=c("Inf","Sup"))
+poligono2<-vect(coords_junto,atts=tabeladeatributos,type="polygon")
+plot(poligono2, col=c("black","purple")) #com a tabela de atributos eu posso colorir o meu plot!
+
+plot(poligono2[poligono2$dado=="Sup",],col="purple")
+plot(poligono2[poligono2$dado=="Inf",],col="purple")
+
+writeVector(poligono2,"poligono2.shp")
+
+matrix<-matrix(runif(25),nrow=5,ncol=5)
+raster<-terra::rast(matrix)
+
+rast2<-rasterize(poligono,raster,touches=TRUE)
+plot(rast2)
+plot(poligono,add=TRUE)
+
+to_poly<-as.polygons(rast2)
+plot(to_poly)
+
+#####
+mapbiomas<-rast("R/Dia 1/Tipos de dados/Raster/mapbioma_microbacia_araguaia.tif")
+plot(mapbiomas)
+mapbiomas_poly<-as.polygons(mapbiomas)
+plot(mapbiomas_poly)
+
+grid<-vect("R/Dia 1/Tipos de dados/Raster/Grid_America do Sul/Adequabilidade_Micrurs.shp")
+raster_grid<-rasterize(grid,rast(ext=ext(grid),crs=crs(grid),res=0.5))
+plot(raster_grid)
