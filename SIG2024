@@ -185,4 +185,124 @@ library(sf)
 mapcerrado<-st_read("R/Dia 1/Projecao_reprojecao/VegetacaoCerrado/VegetacaoCerrado.shp")
 crs(mapcerrado)
 mapcerrado <- crs("EPSG:4326")
+plot(mapcerrado)
+##########3
+mapbiomas<-rast("R/Dia 1/Tipos de dados/Raster/mapbioma_microbacia_araguaia.tif")
 
+mapbiomas+1 #correções de valores dos pixels (+ 1 pixel, ex)
+mapbiomas-10  
+
+#testes lógicos
+plot(mapbiomas>10| mapbiomas <3)
+plot(mapbiomas>10& mapbiomas >3)
+
+extent1<-ext(-50.4,-50.2,-7.6,-7.3)
+extent2<-ext(-50,-49.8,-7.7,-7.4)
+crop1<-terra::crop(mapbiomas,extent1)
+crop2<-terra::crop(mapbiomas,extent2)
+plot(crop1)
+plot(crop2)
+####
+
+mask<-ifel(mapbiomas<=20,NA,1) #filtrar apenas valores acima de 20, todos valores acima de 20 é 1
+#raster apenas de 1
+#mask<-ifel(mapbiomas==4 |mapbiomas==10,1,NA) #usado para testes lógicos
+mapbiomas_mask<-mask(mapbiomas,mask)
+plot(mapbiomas_mask)
+
+stack<-rast(list(mapbiomas,mapbiomas)) #um stack com duas camadas
+names(stack)<-c("1","2")
+stack[[1]]
+stack$"1"    #formas de extrair raster da lista de raster, e nomear essas listas!
+stack["1"]
+
+#mudar a resolução de refinado para grosseiro, e sucessivamente
+res(mapbiomas)*111000 #para eu ver a resolução em km²
+upscaling<-aggregate(mapbiomas, fact=c(2,2), fun="modal") #usando a moda eu generalizo para o valor mais frequente!
+res(upscaling)
+plot(upscaling)
+#fazer isso para ter adequabilidade do dado!
+downscaling<-disagg(mapbiomas,
+                    fact=c(2,2),
+                    method="near") #célula em escala mais grosseira sendo transformada em uma célula mais refinada
+res(downscaling)
+
+raster_example<-mapbiomas
+terra::values(raster_example)<-rnorm(terra::ncell(mapbiomas)) 
+zonal(raster_example,mapbiomas,"mean") #a temperatura média de cada classe do mapbiomas
+
+###média de temperatura das células em média das classes do mapbiomas dentro do Cerrado na bacia TO/AR
+clima<-rast("R/Dia 4/Variavel_climatica/clima0k_cerrado.tif")
+temperatura<-clima[[1]]
+temperatura<-resample(temperatura, mapbiomas) #reamostrou o raster para o outro, extraiu os dados de um e colocou em cima do outro
+zonal(temperatura,mapbiomas,"mean")
+print(clima)
+
+###
+est_focal<-focal(raster_example, w=3, fun="modal") #calculat estatística focal do raster
+lista<-sprc(crop1,crop2) #cria uma lista nos dois rasters
+merge_rast<-merge(lista)
+plot(merge_rast)
+
+###
+neotropic<-vect("R/Dia 3/ecoregions/Ecoregions2017/Ecoregions2017.shp")
+plot(neotropic) #mapa de ecoregiões do neotropico
+names(neotropic)
+eco_name<-neotropic[,c("ECO_NAME","ECO_BIOME_")] #filtrar colunas dentro do vetor
+geoms<-geom(neotropic) #ver se esse polígono tem buraco ou não nele (olhar no hole)
+
+sum(geoms[,"hole"]==1)
+no_hole<-fillHoles(neotropic) #tira tudo que tem buraco (células com buraco)
+sum(geom(no_hole)[,"hole"]==1) #vai voltar zero pq eu preenchi todos os buracos
+
+###
+amazon<-vect("R/Dia 1/Projecao_reprojecao/brazilian_legal_amazon/brazilian_legal_amazon.shp")
+plot(amazon) #o mesmo raciocínio do intersecto do qgis
+interse<-intersect(eco_name,amazon)
+plot(interse) #ele volta o intersecto da amazônia legal e da amazônia
+names(eco_name)
+###
+agg<-aggregate(interse,"ECO_BIOME_")
+plot(agg)
+
+plot(disagg(eco_name))
+
+diff<-symdif(agg,amazon) #o que não se toca (não tem intersecçao)
+plot(diff)
+
+uniao<-union(agg[10,],amazon)
+plot(uniao)
+
+plot(mask(eco_name,amazon))
+
+###
+moojeni<-vect("R/Dia 1/Tipos de dados/Vetorial/Bothrops_moojeni.shp")
+plot(moojeni)
+
+
+# (1) Quais são as ecoregiões na distribuição de Bothops moojeni
+
+Bothops <- vect("../Dia 1/Tipos de dados/Vetorial/Bothrops moojeni_pontos.shp")
+ecorregiao <- vect("R/Dia 3/ecoregions/Ecoregions2017/Ecoregions2017.shp")
+head(ecorregiao)
+head(Bothops)
+
+plot(Bothops)
+plot(ecorregiao)
+
+intersect <- intersect(ecorregiao, Bothops)
+distribuicao <- unique(intersect$ECO_NAME )
+
+print(distribuicao)
+
+plot(ecorregiao, main = "Distribuição de Bothrops moojeni nas Ecorregiões", col = "lightgray")
+plot(intersect, add = TRUE, col = "lightgreen")
+points(Bothops, col = "red", pch = 20)
+
+
+# (2) Filtre os polígonos das ecoregions que estão no bioma “Tropical & Subtropical Grasslands, Savannas & Shrublands”.
+
+head(ecorregiao)
+fill_ecoregions <- ecorregiao[ecorregiao$BIOME_NAME == "Tropical & Subtropical Grasslands, Savannas & Shrublands", ]
+
+plot(fill_ecoregions, main = "Ecorregiões do Bioma: Tropical & Subtropical Grasslands, Savannas & Shrublands", col = "lightblue")
