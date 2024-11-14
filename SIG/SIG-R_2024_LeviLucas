@@ -306,3 +306,65 @@ head(ecorregiao)
 fill_ecoregions <- ecorregiao[ecorregiao$BIOME_NAME == "Tropical & Subtropical Grasslands, Savannas & Shrublands", ]
 
 plot(fill_ecoregions, main = "Ecorregiões do Bioma: Tropical & Subtropical Grasslands, Savannas & Shrublands", col = "lightblue")
+
+###
+install.packages("RColorBrewer")
+library(RColorBrewer)
+library(terra)
+
+clima<-rast("R/Dia 4/Variavel_climatica/clima0k_cerrado.tif")
+occ<-read.csv("R/Dia 4/occurrence.csv", header=TRUE,sep=";")
+pontos<-vect(as.matrix(occ))
+cerrado<-vect("R/Dia 4/Cerrado_biome/BR_BIOMAS_IBGE.shp")
+ecoregions<-vect("R/Dia 3/ecoregions/Ecoregions2017/Ecoregions2017.shp")
+ecoregions_cerrado<-intersect(ecoregions,cerrado)
+plot(clima, legend=FALSE,box=FALSE)
+
+?heat.colors
+col<-rainbow(10)
+plot(clima[[1]],col=col)
+col<-topo.colors(20)
+plot(clima[[1]],col=col)
+col<-hcl.colors(20,palette="Spectral")
+plot(clima[[19]],col=col)
+##MUITO BOM PARA AVALIAR AS VARIÁVEIS DENTRO DO CERRADO!!!
+plot(clima[[7]],col=col,breaks=10,breakby="cases") #colocando quartil para visualizar melhor
+#plot(clima[[1]],
+ #    col=col,
+  #   breaks=10,
+   #  breakby="cases",
+    # legend=TRUE)
+RColorBrewer::display.brewer.all()
+
+##comparar plots lado a lado
+par(mfrow=c(2,2))
+plot(clima[[1]],main="Temp",col=col)
+plot(clima[[12]],main="Precip",col=col)
+plot(clima[[2]],col=col)
+
+##bem publicação de artigo essa comparação aqui
+tela<-matrix(c(1,1,1,1,2,3),
+             nrow=2,
+             ncol=3)
+layout(tela)
+plot(clima[[1]],main="Temp",col=col)
+plot(clima[[12]],main="Precip",col=col)
+plot(clima[[2]],col=col)
+dev.off()
+##adicionar norte/sul...etc no plot
+plot(clima[[1]])
+sbar(xy=c(-45,-22),type="bar")
+north(xy=c(-55,-5),type=2)
+inset(cerrado)
+plot(ecoregions_cerrado,add=TRUE)
+plot(pontos,add=TRUE,col="red")
+
+##para plotar vetor
+plot(ecoregions_cerrado, col=rainbow(4))
+
+tiff("plot1.tif",
+     units = "cm",
+     height=10,
+     width=10,
+     res=300)
+plot(clima[[1]])
