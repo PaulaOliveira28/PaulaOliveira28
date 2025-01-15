@@ -1,0 +1,57 @@
+Script - estudos proj. mestrado 2024/2026
+
+Discente: Paula Eduarda Moura Xavier de Oliveira
+
+#SDM harpia - teste / Paula Oliveira
+library(dismo)
+library(raster)
+library(sp)
+library(rJava)
+
+ocorrencias <- harpiah 
+coords <- ocorrencias[, c("longitude", "latitude")]
+
+data_dir <- "C:/Users/paula/variaveis/"
+temperature_data <- geodata::worldclim_global(var = "bio", res = 5, path = data_dir)
+#não apenas temp, mas ok
+
+variaveis <- stack(temperature_data )
+
+names(variaveis)
+
+modelo_maxent <- maxent(variaveis, coords)
+
+summary(modelo_maxent)
+
+previsao <- predict(modelo_maxent, variaveis)
+
+plot(previsao)
+
+bg_data <- randomPoints(variaveis, n = 10000)
+bg_coords <- data.frame(longitude = bg_data[, 1], latitude = bg_data[, 2])
+all_coords <- rbind(coords, bg_coords)
+all_preds <- predict(modelo_maxent, variaveis)
+occ_preds <- extract(all_preds, coords)
+bg_preds <- extract(all_preds, bg_coords)
+response <- c(rep(1, nrow(coords)), rep(0, nrow(bg_coords)))
+install.packages("pROC")
+library(pROC)
+roc_curve <- roc(response, c(occ_preds, bg_preds))
+
+plot(roc_curve, 
+     col = "blue", 
+     main = "Curva ROC - Modelo MaxEnt", 
+     lwd = 2)
+
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+legend("bottomright", 
+       legend = paste("AUC =", round(auc(roc_curve), 2)), 
+       col = "blue", 
+       lwd = 2)
+
+
+
+
+
+
